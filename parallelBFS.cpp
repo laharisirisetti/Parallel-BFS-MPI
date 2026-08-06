@@ -77,6 +77,70 @@ vector<int> exchange(vector<vector<int>> &children)
      return recvBuffer;
 }
 
+vector<int> runParallelBFS(GraphData &graphData, LocalGraph &localGraph){
+     int worldSize, rank;
+     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+     MPI_Comm_size(MPI_COMM_WORLD, &worldSize);
+     vector<bool> visited(graphData.V, false);
+     vector<int> dist(graphData.V, -1);
+     vector<int> current_frontier;
+     int level = 0;
+     if (graphData.vertexOwner[graphData.S] == rank)
+     {
+          current_frontier.push_back(graphData.S);
+          visited[graphData.S] = true;
+     }
+     int local_curr_nodes_size = current_frontier.size();
+     int global_curr_nodes_size;
+     MPI_Allreduce(&local_curr_nodes_size, &global_curr_nodes_size, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+
+     while (global_curr_nodes_size)
+     {
+          vector<int> next_frontier;
+          vector<vector<int>> sendBuffers(worldSize);
+          for (int node : current_frontier)
+          {
+               dist[node] = level;
+               int offsetStart = localGraph.offsets[node - localGraph.startVertex];
+               int offsetEnd = localGraph.offsets[node - localGraph.startVertex + 1];
+               for (int ind = offsetStart; ind < offsetEnd; ind++)
+               {
+                    int child = localGraph.csr[ind];
+                    if (graphData.vertexOwner[child] == rank)
+                    {
+                         if (!visited[child])
+                         {
+                              visited[child] = true;
+                              next_frontier.push_back(child);
+                         }
+                    }
+                    else
+                    {
+                         sendBuffers[graphData.vertexOwner[child]].push_back(child);
+                    }
+               }
+          }
+
+          // exchange sendBuffers
+          vector<int> recvBuffer = exchange(sendBuffers);
+          for (int child : recvBuffer)
+          {
+               if (!visited[child])
+               {
+                    visited[child] = true;
+                    next_frontier.push_back(child);
+               }
+          }
+          // cout<<"Completed level "<<level<<endl;
+          current_frontier = next_frontier;
+          local_curr_nodes_size = current_frontier.size();
+          MPI_Allreduce(&local_curr_nodes_size, &global_curr_nodes_size, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+          // cout<<"global_size "<<global_curr_nodes_size<<endl;
+          level++;
+     }
+     return dist;
+}
+
 void receiveLocalGraph(LocalGraph &localGraph){
      int localOffsetSize;
      MPI_Recv(&localOffsetSize, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
@@ -97,6 +161,22 @@ void sendLocalGraph(LocalGraph &localGraph, int process){
      MPI_Send(&csrSize, 1, MPI_INT, process, 2, MPI_COMM_WORLD);
      MPI_Send(localGraph.csr.data(), csrSize, MPI_INT, process, 3, MPI_COMM_WORLD);
      MPI_Send(&localGraph.startVertex, 1, MPI_INT, process, 4, MPI_COMM_WORLD);
+}
+
+void receiveFullGraphData(GraphData &graphData, LocalGraph &localGraph){
+     int rank;
+     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+     // Boradcast common data
+     MPI_Bcast(&graphData.V, 1, MPI_INT, 0, MPI_COMM_WORLD);
+     MPI_Bcast(&graphData.S, 1, MPI_INT, 0, MPI_COMM_WORLD);
+     if (rank != 0)
+          graphData.vertexOwner.resize(graphData.V);
+     MPI_Bcast(graphData.vertexOwner.data(), graphData.V, MPI_INT, 0, MPI_COMM_WORLD);
+
+     if (rank != 0)
+     {
+          receiveLocalGraph(localGraph);
+     }
 }
 
 // Split vertices among processors (Contiguous block partitioning with the remainder distributed among the first rem processes)
@@ -186,92 +266,10 @@ int main(int argc, char *argv[])
           computeLocalCSRAndSend(graphData, localGraph);
      }
 
-     // Boradcast common data
-     MPI_Bcast(&graphData.V, 1, MPI_INT, 0, MPI_COMM_WORLD);
-     MPI_Bcast(&graphData.S, 1, MPI_INT, 0, MPI_COMM_WORLD);
-     if (rank != 0)
-          graphData.vertexOwner.resize(graphData.V);
-     MPI_Bcast(graphData.vertexOwner.data(), graphData.V, MPI_INT, 0, MPI_COMM_WORLD);
-
-     if (rank != 0)
-     {
-          receiveLocalGraph(localGraph);
-     }
-
-     // //print offsets and csr
-     // cout<<"p"<<rank<<" offsets ";
-     // for(int offset:localOffsets){
-     //      cout<<offset<<" ";
-     // }
-     // cout<<endl;
-
-     // cout<<"p"<<rank<<" csr ";
-     // for(int node:localCSR){
-     //      cout<<node<<" ";
-     // }
-     // cout<<endl;
-
-     // start BFS
-     vector<bool> visited(graphData.V, false);
-     vector<int> dist(graphData.V, -1);
-     vector<int> current_frontier;
-     int level = 0;
-     if (graphData.vertexOwner[graphData.S] == rank)
-     {
-          current_frontier.push_back(graphData.S);
-          visited[graphData.S] = true;
-     }
-     int local_curr_nodes_size = current_frontier.size();
-     int global_curr_nodes_size;
-     MPI_Allreduce(&local_curr_nodes_size, &global_curr_nodes_size, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-
-     while (global_curr_nodes_size)
-     {
-          vector<int> next_frontier;
-          vector<vector<int>> sendBuffers(worldSize);
-          for (int node : current_frontier)
-          {
-               dist[node] = level;
-               int offsetStart = localGraph.offsets[node - localGraph.startVertex];
-               int offsetEnd = localGraph.offsets[node - localGraph.startVertex + 1];
-               for (int ind = offsetStart; ind < offsetEnd; ind++)
-               {
-                    int child = localGraph.csr[ind];
-                    if (graphData.vertexOwner[child] == rank)
-                    {
-                         if (!visited[child])
-                         {
-                              visited[child] = true;
-                              next_frontier.push_back(child);
-                         }
-                    }
-                    else
-                    {
-                         sendBuffers[graphData.vertexOwner[child]].push_back(child);
-                    }
-               }
-          }
-
-          // exchange sendBuffers
-          vector<int> recvBuffer = exchange(sendBuffers);
-          for (int child : recvBuffer)
-          {
-               if (!visited[child])
-               {
-                    visited[child] = true;
-                    next_frontier.push_back(child);
-               }
-          }
-          // cout<<"Completed level "<<level<<endl;
-          current_frontier = next_frontier;
-          local_curr_nodes_size = current_frontier.size();
-          MPI_Allreduce(&local_curr_nodes_size, &global_curr_nodes_size, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-          // cout<<"global_size "<<global_curr_nodes_size<<endl;
-          level++;
-     }
+     receiveFullGraphData(graphData, localGraph);
+     vector<int> localDist = runParallelBFS(graphData,localGraph);
      vector<int> final_dist(graphData.V);
-     MPI_Reduce(dist.data(), final_dist.data(), graphData.V, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
-     MPI_Barrier(MPI_COMM_WORLD);
+     MPI_Reduce(localDist.data(), final_dist.data(), graphData.V, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
      if (rank == 0)
      {
           cout << "shortest paths" << endl;
