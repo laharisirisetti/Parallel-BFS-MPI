@@ -17,6 +17,15 @@ struct GraphData
      vector<int> vertexOwner;
 };
 
+void printShortestPaths(vector<int> &shortestPaths){
+      cout << "shortest paths" << endl;
+     for (int d : shortestPaths)
+     {
+          cout << d << " ";
+     }
+     cout << endl;
+}
+
 vector<int> exchange(vector<vector<int>> &children)
 {
      int rank;
@@ -272,12 +281,7 @@ int main(int argc, char *argv[])
      MPI_Reduce(localDist.data(), final_dist.data(), graphData.V, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
      if (rank == 0)
      {
-          cout << "shortest paths" << endl;
-          for (int d : final_dist)
-          {
-               cout << d << " ";
-          }
-          cout << endl;
+         printShortestPaths(final_dist);
      }
 
      MPI_Finalize();
