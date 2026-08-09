@@ -1,299 +1,658 @@
 #include <bits/stdc++.h>
 #include <mpi.h>
+
 using namespace std;
 
-struct LocalGraph
-{
-     int startVertex;
-     vector<int> offsets;
-     vector<int> csr;
-};
+// ------------------------------------------------------------
+// Constants
+// ------------------------------------------------------------
 
-struct GraphData
-{
-     int V;
-     int S;
-     vector<vector<int>> graph;
-     vector<int> vertexOwner;
-};
+constexpr int ROOT_PROCESS = 0;
+
+constexpr int OFFSET_SIZE_TAG = 0;
+constexpr int OFFSET_DATA_TAG = 1;
+constexpr int CSR_SIZE_TAG = 2;
+constexpr int CSR_DATA_TAG = 3;
+constexpr int START_VERTEX_TAG = 4;
+
+// ------------------------------------------------------------
+// MPI State
+// ------------------------------------------------------------
 
 int mpiRank;
 int worldSize;
 
-constexpr int OFFSET_SIZE_TAG = 0;
-constexpr int OFFSET_DATA_TAG = 1;
-constexpr int CSR_SIZE_TAG    = 2;
-constexpr int CSR_DATA_TAG    = 3;
-constexpr int START_TAG       = 4;
+// ------------------------------------------------------------
+// Data Structures
+// ------------------------------------------------------------
 
-void printShortestPaths(const vector<int> &shortestPaths){
-      cout << "shortest paths" << endl;
-     for (int d : shortestPaths)
-     {
-          cout << d << " ";
-     }
-     cout << endl;
+struct LocalGraph
+{
+    int startVertex;
+    vector<int> offsets;
+    vector<int> csr;
+};
+
+struct GraphData
+{
+    int vertexCount;
+    int sourceVertex;
+    vector<vector<int>> graph;
+    vector<int> vertexOwner;
+};
+
+// ------------------------------------------------------------
+// Utility Functions
+// ------------------------------------------------------------
+
+void printShortestPaths(const vector<int>& shortestPaths)
+{
+    cout << "Shortest paths:" << endl;
+
+    for (int distance : shortestPaths)
+    {
+        cout << distance << " ";
+    }
+
+    cout << endl;
 }
 
 vector<int> computeDisplacements(const vector<int>& counts)
 {
-    vector<int> disp(counts.size(),0);
+    vector<int> displacements(counts.size(), 0);
 
-    for(size_t i=1;i<counts.size();i++)
-        disp[i]=disp[i-1]+counts[i-1];
+    for (size_t i = 1; i < counts.size(); ++i)
+    {
+        displacements[i] =
+            displacements[i - 1] + counts[i - 1];
+    }
 
-    return disp;
+    return displacements;
 }
 
-vector<int> exchange(const vector<vector<int>> &children)
+// ------------------------------------------------------------
+// MPI Communication
+// ------------------------------------------------------------
+
+vector<int> exchange(const vector<vector<int>>& children)
 {
-     // Prepare sendCounts
-     int size = children.size();
-     vector<int> sendCounts(size);
-     for (int i = 0; i < size; i++)
-     {
-          sendCounts[i] = children[i].size();
-     }
+    const int processCount = static_cast<int>(children.size());
 
-     auto sendDisp = computeDisplacements(sendCounts);
+    // Prepare send counts.
+    vector<int> sendCounts(processCount);
 
-     // Prepare SendBuffer
-     vector<int> sendBuffer;
-     int total = 0;
-     for (auto &v : children)
-          total += v.size();
-     sendBuffer.reserve(total);
-     for (int i = 0; i < size; i++)
-     {
-          // cout<<"p"<<mpiRank<<" to "<<i<<" ";
-          for (int j = 0; j < children[i].size(); j++)
-          {
-               sendBuffer.push_back(children[i][j]);
-               // cout<<children[i][j]<<" ";
-          }
-          // cout<<endl;
-     }
+    for (int i = 0; i < processCount; ++i)
+    {
+        sendCounts[i] = static_cast<int>(children[i].size());
+    }
 
-     // Exchange counts
-     vector<int> recvCounts(size);
-     MPI_Alltoall(sendCounts.data(), 1, MPI_INT, recvCounts.data(), 1, MPI_INT, MPI_COMM_WORLD);
+    // Prepare send displacements.
+    const vector<int> sendDisplacements =
+        computeDisplacements(sendCounts);
 
-     // Prepare RecvDisplacements
-     auto recvDisp = computeDisplacements(recvCounts);
+    // Flatten send buffers.
+    int totalSendCount = 0;
 
+    for (const auto& buffer : children)
+    {
+        totalSendCount += static_cast<int>(buffer.size());
+    }
 
-     // Prepare Receive Buffer
-     int recvBuffSize = accumulate(recvCounts.begin(), recvCounts.end(), 0);
-     vector<int> recvBuffer(recvBuffSize);
+    vector<int> sendBuffer;
+    sendBuffer.reserve(totalSendCount);
 
-     // Exchange whole data
-     MPI_Alltoallv(sendBuffer.data(), sendCounts.data(), sendDisp.data(), MPI_INT, recvBuffer.data(), recvCounts.data(), recvDisp.data(), MPI_INT, MPI_COMM_WORLD);
+    for (const auto& buffer : children)
+    {
+        sendBuffer.insert(
+            sendBuffer.end(),
+            buffer.begin(),
+            buffer.end()
+        );
+    }
 
-     // cout<<"p"<<mpiRank<<" receive ";
-     // for(int i=0;i<recvBuffSize;i++){
-     //      cout<<recvBuffer[i]<<" ";
-     // }
-     // cout<<endl;
+    // Exchange counts.
+    vector<int> receiveCounts(processCount);
 
-     return recvBuffer;
+    MPI_Alltoall(
+        sendCounts.data(),
+        1,
+        MPI_INT,
+        receiveCounts.data(),
+        1,
+        MPI_INT,
+        MPI_COMM_WORLD
+    );
+
+    // Prepare receive displacements.
+    const vector<int> receiveDisplacements =
+        computeDisplacements(receiveCounts);
+
+    // Prepare receive buffer.
+    const int totalReceiveCount =
+        accumulate(
+            receiveCounts.begin(),
+            receiveCounts.end(),
+            0
+        );
+
+    vector<int> receiveBuffer(totalReceiveCount);
+
+    // Exchange actual data.
+    MPI_Alltoallv(
+        sendBuffer.data(),
+        sendCounts.data(),
+        sendDisplacements.data(),
+        MPI_INT,
+        receiveBuffer.data(),
+        receiveCounts.data(),
+        receiveDisplacements.data(),
+        MPI_INT,
+        MPI_COMM_WORLD
+    );
+
+    return receiveBuffer;
 }
 
-vector<int> runParallelBFS(const GraphData &graphData,const LocalGraph &localGraph){
-     vector<bool> visited(graphData.V, false);
-     vector<int> dist(graphData.V, -1);
-     vector<int> current_frontier;
-     int level = 0;
-     if (graphData.vertexOwner[graphData.S] == mpiRank)
-     {
-          current_frontier.push_back(graphData.S);
-          visited[graphData.S] = true;
-     }
-     int local_curr_nodes_size = current_frontier.size();
-     int global_curr_nodes_size;
-     MPI_Allreduce(&local_curr_nodes_size, &global_curr_nodes_size, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+void sendLocalGraph(
+    const LocalGraph& localGraph,
+    int destinationProcess
+)
+{
+    const int offsetSize =
+        static_cast<int>(localGraph.offsets.size());
 
-     while (global_curr_nodes_size)
-     {
-          vector<int> next_frontier;
-          vector<vector<int>> sendBuffers(worldSize);
-          for (int node : current_frontier)
-          {
-               dist[node] = level;
-               int offsetStart = localGraph.offsets[node - localGraph.startVertex];
-               int offsetEnd = localGraph.offsets[node - localGraph.startVertex + 1];
-               for (int ind = offsetStart; ind < offsetEnd; ind++)
-               {
-                    int child = localGraph.csr[ind];
-                    if (graphData.vertexOwner[child] == mpiRank)
+    MPI_Send(
+        &offsetSize,
+        1,
+        MPI_INT,
+        destinationProcess,
+        OFFSET_SIZE_TAG,
+        MPI_COMM_WORLD
+    );
+
+    MPI_Send(
+        localGraph.offsets.data(),
+        offsetSize,
+        MPI_INT,
+        destinationProcess,
+        OFFSET_DATA_TAG,
+        MPI_COMM_WORLD
+    );
+
+    const int csrSize =
+        static_cast<int>(localGraph.csr.size());
+
+    MPI_Send(
+        &csrSize,
+        1,
+        MPI_INT,
+        destinationProcess,
+        CSR_SIZE_TAG,
+        MPI_COMM_WORLD
+    );
+
+    MPI_Send(
+        localGraph.csr.data(),
+        csrSize,
+        MPI_INT,
+        destinationProcess,
+        CSR_DATA_TAG,
+        MPI_COMM_WORLD
+    );
+
+    MPI_Send(
+        &localGraph.startVertex,
+        1,
+        MPI_INT,
+        destinationProcess,
+        START_VERTEX_TAG,
+        MPI_COMM_WORLD
+    );
+}
+
+void receiveLocalGraph(LocalGraph& localGraph)
+{
+    int offsetSize;
+
+    MPI_Recv(
+        &offsetSize,
+        1,
+        MPI_INT,
+        ROOT_PROCESS,
+        OFFSET_SIZE_TAG,
+        MPI_COMM_WORLD,
+        MPI_STATUS_IGNORE
+    );
+
+    localGraph.offsets.resize(offsetSize);
+
+    MPI_Recv(
+        localGraph.offsets.data(),
+        offsetSize,
+        MPI_INT,
+        ROOT_PROCESS,
+        OFFSET_DATA_TAG,
+        MPI_COMM_WORLD,
+        MPI_STATUS_IGNORE
+    );
+
+    int csrSize;
+
+    MPI_Recv(
+        &csrSize,
+        1,
+        MPI_INT,
+        ROOT_PROCESS,
+        CSR_SIZE_TAG,
+        MPI_COMM_WORLD,
+        MPI_STATUS_IGNORE
+    );
+
+    localGraph.csr.resize(csrSize);
+
+    MPI_Recv(
+        localGraph.csr.data(),
+        csrSize,
+        MPI_INT,
+        ROOT_PROCESS,
+        CSR_DATA_TAG,
+        MPI_COMM_WORLD,
+        MPI_STATUS_IGNORE
+    );
+
+    MPI_Recv(
+        &localGraph.startVertex,
+        1,
+        MPI_INT,
+        ROOT_PROCESS,
+        START_VERTEX_TAG,
+        MPI_COMM_WORLD,
+        MPI_STATUS_IGNORE
+    );
+}
+
+// ------------------------------------------------------------
+// Graph Construction
+// ------------------------------------------------------------
+
+LocalGraph buildLocalGraph(
+    const GraphData& graphData,
+    int startVertex,
+    int endVertex
+)
+{
+    const int localVertexCount =
+        endVertex - startVertex + 1;
+
+    LocalGraph localGraph;
+
+    localGraph.startVertex = startVertex;
+    localGraph.offsets.resize(localVertexCount + 1, 0);
+
+    // Build CSR offsets.
+    for (int vertex = startVertex;
+         vertex <= endVertex;
+         ++vertex)
+    {
+        const int localIndex =
+            vertex - startVertex;
+
+        localGraph.offsets[localIndex + 1] =
+            localGraph.offsets[localIndex] +
+            static_cast<int>(graphData.graph[vertex].size());
+    }
+
+    // Build CSR data.
+    for (int vertex = startVertex;
+         vertex <= endVertex;
+         ++vertex)
+    {
+        for (int child : graphData.graph[vertex])
+        {
+            localGraph.csr.push_back(child);
+        }
+    }
+
+    return localGraph;
+}
+
+// Split vertices among processors using contiguous block partitioning.
+void computeLocalCSRAndSend(
+    GraphData& graphData,
+    LocalGraph& rootLocalGraph
+)
+{
+    graphData.vertexOwner.resize(graphData.vertexCount);
+
+    const int baseVertexCount =
+        graphData.vertexCount / worldSize;
+
+    const int remainingVertices =
+        graphData.vertexCount % worldSize;
+
+    int startVertex = 0;
+
+    for (int process = 0;
+         process < worldSize;
+         ++process)
+    {
+        const int localVertexCount =
+            baseVertexCount +
+            (process < remainingVertices ? 1 : 0);
+
+        const int endVertex =
+            startVertex + localVertexCount - 1;
+
+        // Assign owner of each vertex.
+        for (int vertex = startVertex;
+             vertex <= endVertex;
+             ++vertex)
+        {
+            graphData.vertexOwner[vertex] = process;
+        }
+
+        // Build local CSR graph.
+        LocalGraph localGraph =
+            buildLocalGraph(
+                graphData,
+                startVertex,
+                endVertex
+            );
+
+        // Root keeps its own local graph.
+        if (process == ROOT_PROCESS)
+        {
+            rootLocalGraph = move(localGraph);
+        }
+        else
+        {
+            sendLocalGraph(localGraph, process);
+        }
+
+        startVertex = endVertex + 1;
+    }
+}
+
+void readInputAndBuildGraph(GraphData& graphData)
+{
+    int edgeCount;
+
+    cin >> graphData.vertexCount
+        >> edgeCount
+        >> graphData.sourceVertex;
+
+    vector<pair<int, int>> edges(edgeCount);
+
+    for (auto& [from, to] : edges)
+    {
+        cin >> from >> to;
+    }
+
+    graphData.graph.resize(graphData.vertexCount);
+
+    for (const auto& [from, to] : edges)
+    {
+        graphData.graph[from].push_back(to);
+    }
+}
+
+// ------------------------------------------------------------
+// Data Distribution
+// ------------------------------------------------------------
+
+void receiveFullGraphData(
+    GraphData& graphData,
+    LocalGraph& localGraph
+)
+{
+    // Broadcast common graph information.
+    MPI_Bcast(
+        &graphData.vertexCount,
+        1,
+        MPI_INT,
+        ROOT_PROCESS,
+        MPI_COMM_WORLD
+    );
+
+    MPI_Bcast(
+        &graphData.sourceVertex,
+        1,
+        MPI_INT,
+        ROOT_PROCESS,
+        MPI_COMM_WORLD
+    );
+
+    if (mpiRank != ROOT_PROCESS)
+    {
+        graphData.vertexOwner.resize(
+            graphData.vertexCount
+        );
+    }
+
+    MPI_Bcast(
+        graphData.vertexOwner.data(),
+        graphData.vertexCount,
+        MPI_INT,
+        ROOT_PROCESS,
+        MPI_COMM_WORLD
+    );
+
+    // Root already has its local graph.
+    // Other processes receive theirs.
+    if (mpiRank != ROOT_PROCESS)
+    {
+        receiveLocalGraph(localGraph);
+    }
+}
+
+// ------------------------------------------------------------
+// Parallel BFS
+// ------------------------------------------------------------
+
+vector<int> runParallelBFS(
+    const GraphData& graphData,
+    const LocalGraph& localGraph
+)
+{
+    vector<bool> visited(
+        graphData.vertexCount,
+        false
+    );
+
+    vector<int> distance(
+        graphData.vertexCount,
+        -1
+    );
+
+    vector<int> currentFrontier;
+
+    int level = 0;
+
+    // Only the process owning the source starts the BFS.
+    if (
+        graphData.vertexOwner[graphData.sourceVertex]
+        == mpiRank
+    )
+    {
+        currentFrontier.push_back(
+            graphData.sourceVertex
+        );
+
+        visited[graphData.sourceVertex] = true;
+    }
+
+    int localFrontierSize =
+        static_cast<int>(currentFrontier.size());
+
+    int globalFrontierSize;
+
+    MPI_Allreduce(
+        &localFrontierSize,
+        &globalFrontierSize,
+        1,
+        MPI_INT,
+        MPI_SUM,
+        MPI_COMM_WORLD
+    );
+
+    while (globalFrontierSize > 0)
+    {
+        vector<int> nextFrontier;
+
+        vector<vector<int>> sendBuffers(worldSize);
+
+        // Process current frontier.
+        for (int vertex : currentFrontier)
+        {
+            distance[vertex] = level;
+
+            const int localVertexIndex =
+                vertex - localGraph.startVertex;
+
+            const int offsetStart =
+                localGraph.offsets[localVertexIndex];
+
+            const int offsetEnd =
+                localGraph.offsets[localVertexIndex + 1];
+
+            for (int index = offsetStart;
+                 index < offsetEnd;
+                 ++index)
+            {
+                const int child =
+                    localGraph.csr[index];
+
+                const int childOwner =
+                    graphData.vertexOwner[child];
+
+                // Child belongs to this process.
+                if (childOwner == mpiRank)
+                {
+                    if (!visited[child])
                     {
-                         if (!visited[child])
-                         {
-                              visited[child] = true;
-                              next_frontier.push_back(child);
-                         }
+                        visited[child] = true;
+                        nextFrontier.push_back(child);
                     }
-                    else
-                    {
-                         sendBuffers[graphData.vertexOwner[child]].push_back(child);
-                    }
-               }
-          }
+                }
+                // Child belongs to another process.
+                else
+                {
+                    sendBuffers[childOwner].push_back(child);
+                }
+            }
+        }
 
-          // exchange sendBuffers
-          vector<int> recvBuffer = exchange(sendBuffers);
-          for (int child : recvBuffer)
-          {
-               if (!visited[child])
-               {
-                    visited[child] = true;
-                    next_frontier.push_back(child);
-               }
-          }
-          // cout<<"Completed level "<<level<<endl;
-          current_frontier = next_frontier;
-          local_curr_nodes_size = current_frontier.size();
-          MPI_Allreduce(&local_curr_nodes_size, &global_curr_nodes_size, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-          // cout<<"global_size "<<global_curr_nodes_size<<endl;
-          level++;
-     }
-     return dist;
+        // Exchange newly discovered remote vertices.
+        const vector<int> receivedVertices =
+            exchange(sendBuffers);
+
+        for (int vertex : receivedVertices)
+        {
+            if (!visited[vertex])
+            {
+                visited[vertex] = true;
+                nextFrontier.push_back(vertex);
+            }
+        }
+
+        currentFrontier = move(nextFrontier);
+
+        localFrontierSize =
+            static_cast<int>(currentFrontier.size());
+
+        MPI_Allreduce(
+            &localFrontierSize,
+            &globalFrontierSize,
+            1,
+            MPI_INT,
+            MPI_SUM,
+            MPI_COMM_WORLD
+        );
+
+        ++level;
+    }
+
+    return distance;
 }
 
-void receiveLocalGraph(LocalGraph &localGraph){
-     int localOffsetSize;
-     MPI_Recv(&localOffsetSize, 1, MPI_INT, 0, OFFSET_SIZE_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-     localGraph.offsets.resize(localOffsetSize);
-     MPI_Recv(localGraph.offsets.data(), localOffsetSize, MPI_INT, 0, OFFSET_DATA_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-     int localCsrSize;
-     MPI_Recv(&localCsrSize, 1, MPI_INT, 0, CSR_SIZE_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-     localGraph.csr.resize(localCsrSize);
-     MPI_Recv(localGraph.csr.data(), localCsrSize, MPI_INT, 0, CSR_DATA_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-     MPI_Recv(&localGraph.startVertex, 1, MPI_INT, 0, START_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-}
+// ------------------------------------------------------------
+// MPI Initialization
+// ------------------------------------------------------------
 
-void sendLocalGraph(const LocalGraph &localGraph, int process){
-     int offsetSize = localGraph.offsets.size();
-     MPI_Send(&offsetSize, 1, MPI_INT, process, OFFSET_SIZE_TAG, MPI_COMM_WORLD);
-     MPI_Send(localGraph.offsets.data(), offsetSize, MPI_INT, process, OFFSET_DATA_TAG, MPI_COMM_WORLD);
-     int csrSize = localGraph.csr.size();
-     MPI_Send(&csrSize, 1, MPI_INT, process, CSR_SIZE_TAG, MPI_COMM_WORLD);
-     MPI_Send(localGraph.csr.data(), csrSize, MPI_INT, process, CSR_DATA_TAG, MPI_COMM_WORLD);
-     MPI_Send(&localGraph.startVertex, 1, MPI_INT, process, START_TAG, MPI_COMM_WORLD);
-}
-
-void receiveFullGraphData(GraphData &graphData, LocalGraph &localGraph){
-     // Boradcast common data
-     MPI_Bcast(&graphData.V, 1, MPI_INT, 0, MPI_COMM_WORLD);
-     MPI_Bcast(&graphData.S, 1, MPI_INT, 0, MPI_COMM_WORLD);
-     if (mpiRank != 0)
-          graphData.vertexOwner.resize(graphData.V);
-     MPI_Bcast(graphData.vertexOwner.data(), graphData.V, MPI_INT, 0, MPI_COMM_WORLD);
-
-     if (mpiRank != 0)
-     {
-          receiveLocalGraph(localGraph);
-     }
-}
-
-LocalGraph buildLocalGraph(const GraphData &graphData, int start, int endd){
-     int paritalV = endd - start + 1;
-     LocalGraph localGraph;
-     localGraph.offsets.resize(paritalV + 1, 0);
-     for (int node = start + 1; node <= endd + 1; node++)
-     {
-          localGraph.offsets[node - start] = localGraph.offsets[node - start - 1] + graphData.graph[node - 1].size();
-     }
-
-     for (int node = start; node <= endd; node++)
-     {
-          for (int child : graphData.graph[node])
-          {
-               localGraph.csr.push_back(child);
-          }
-     }
-     localGraph.startVertex = start;
-     return localGraph;
-}
-
-// Split vertices among processors (Contiguous block partitioning with the remainder distributed among the first rem processes)
-void computeLocalCSRAndSend(GraphData &graphData, LocalGraph &rootLocalGraph)
-{
-     graphData.vertexOwner.resize(graphData.V);
-     int base = graphData.V / worldSize;
-     int remaining = graphData.V % worldSize;
-     int lastEnd = -1;
-     for (int i = 0; i < worldSize; i++)
-     {
-          int start = lastEnd + 1;
-          int endd = start + base - 1;
-          if (i < remaining)
-               endd++;
-          lastEnd = endd;
-          // cout<<"p"<<i<<" "<<start<<" "<<endd<<endl;
-          for (int node = start; node <= endd; node++)
-          {
-               graphData.vertexOwner[node] = i;
-          }
-
-          // compute patrial Compressed Sparse graph for this process
-          LocalGraph localGraph = buildLocalGraph(graphData, start, endd);
-          
-          // send offsets and csr
-          if (i == 0)
-          {
-              rootLocalGraph = move(localGraph);
-          }
-          else
-          {
-               sendLocalGraph(localGraph, i);
-          }
-     }
-}
-
-void readInputAndBuildGraph(GraphData &graphData)
-{
-     int E;
-     cin >> graphData.V >> E >> graphData.S;
-     vector<vector<int>> edges(E, vector<int>(2));
-     for (int i = 0; i < E; i++)
-     {
-          cin >> edges[i][0] >> edges[i][1];
-     }
-
-     // Build graph
-     graphData.graph.resize(graphData.V);
-     for (int i = 0; i < E; i++)
-     {
-          graphData.graph[edges[i][0]].push_back(edges[i][1]);
-     }
-}
-
-void initializeMPI(int& argc, char* argv[])
+void initializeMPI(
+    int& argc,
+    char* argv[]
+)
 {
     MPI_Init(&argc, &argv);
-    MPI_Comm_rank(MPI_COMM_WORLD, &mpiRank);
-    MPI_Comm_size(MPI_COMM_WORLD, &worldSize);
+
+    MPI_Comm_rank(
+        MPI_COMM_WORLD,
+        &mpiRank
+    );
+
+    MPI_Comm_size(
+        MPI_COMM_WORLD,
+        &worldSize
+    );
 }
 
-int main(int argc, char *argv[])
+// ------------------------------------------------------------
+// Main
+// ------------------------------------------------------------
+
+int main(int argc, char* argv[])
 {
-     initializeMPI(argc, argv);
-     GraphData graphData;
-     LocalGraph localGraph;
-     if (mpiRank == 0)
-     {
-          readInputAndBuildGraph(graphData);
-          computeLocalCSRAndSend(graphData, localGraph);
-     }
+    initializeMPI(argc, argv);
 
-     receiveFullGraphData(graphData, localGraph);
-     vector<int> localDist = runParallelBFS(graphData,localGraph);
-     vector<int> final_dist(graphData.V);
-     MPI_Reduce(localDist.data(), final_dist.data(), graphData.V, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
-     if (mpiRank == 0)
-     {
-         printShortestPaths(final_dist);
-     }
+    GraphData graphData;
+    LocalGraph localGraph;
 
-     MPI_Finalize();
+    // Root reads the graph and distributes local CSR graphs.
+    if (mpiRank == ROOT_PROCESS)
+    {
+        readInputAndBuildGraph(graphData);
+
+        computeLocalCSRAndSend(
+            graphData,
+            localGraph
+        );
+    }
+
+    // Receive common graph information and local graph.
+    receiveFullGraphData(
+        graphData,
+        localGraph
+    );
+
+    // Run distributed BFS.
+    vector<int> localDistance =
+        runParallelBFS(
+            graphData,
+            localGraph
+        );
+
+    // Combine distances from all processes.
+    vector<int> finalDistance(
+        graphData.vertexCount
+    );
+
+    MPI_Reduce(
+        localDistance.data(),
+        finalDistance.data(),
+        graphData.vertexCount,
+        MPI_INT,
+        MPI_MAX,
+        ROOT_PROCESS,
+        MPI_COMM_WORLD
+    );
+
+    if (mpiRank == ROOT_PROCESS)
+    {
+        printShortestPaths(finalDistance);
+    }
+
+    MPI_Finalize();
+
+    return 0;
 }
