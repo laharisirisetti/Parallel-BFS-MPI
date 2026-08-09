@@ -129,6 +129,12 @@ def main() -> None:
     star_edges = generate_star(n)
     write_graph(OUTPUT_DIR / "star.txt", n, undirected_to_directed(star_edges))
 
+    # Large-scale random graph for stronger performance stress testing.
+    n = 50000
+    target_undirected_edges = 250000
+    large_edges = generate_connected_random_graph(n, target_undirected_edges, rng)
+    write_graph(OUTPUT_DIR / "large_random.txt", n, undirected_to_directed(large_edges))
+
     print("\nAll benchmark graphs generated.")
 
 
