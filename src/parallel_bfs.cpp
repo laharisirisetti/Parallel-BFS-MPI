@@ -404,6 +404,13 @@ void receiveFullGraphData(
     LocalGraph& localGraph
 )
 {
+    // Root already has its local graph.
+    // Other processes receive theirs.
+    if (mpiRank != ROOT_PROCESS)
+    {
+        receiveLocalGraph(localGraph);
+    }
+    
     // Broadcast common graph information.
     MPI_Bcast(
         &graphData.vertexCount,
@@ -436,12 +443,6 @@ void receiveFullGraphData(
         MPI_COMM_WORLD
     );
 
-    // Root already has its local graph.
-    // Other processes receive theirs.
-    if (mpiRank != ROOT_PROCESS)
-    {
-        receiveLocalGraph(localGraph);
-    }
 }
 
 // ------------------------------------------------------------
