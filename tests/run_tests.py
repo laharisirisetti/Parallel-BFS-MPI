@@ -8,8 +8,8 @@ from typing import List
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-TEST_CASES_DIR = REPO_ROOT / "tests" / "test_cases"
-EXPECTED_DIR = REPO_ROOT / "tests" / "expected"
+TEST_CASES_DIR = REPO_ROOT / "tests" / "test_cases" / "deterministic"
+EXPECTED_DIR = REPO_ROOT / "tests" / "expected" / "deterministic"
 SEQUENTIAL_BIN = REPO_ROOT / "tests" / "sequential"
 PARALLEL_BIN = REPO_ROOT / "tests" / "parallel"
 
