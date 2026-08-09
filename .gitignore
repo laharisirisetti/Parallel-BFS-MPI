@@ -3,3 +3,5 @@ a.out
 *.out
 build/
 .vscode/
+tests/sequential
+tests/parallel
