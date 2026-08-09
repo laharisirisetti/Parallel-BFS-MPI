@@ -50,8 +50,6 @@ void readInputAndBuildGraph(
 
 void printShortestPaths(const vector<int>& dist)
 {
-    cout << "shortest paths" << endl;
-
     for (int d : dist)
     {
         cout << d << " ";

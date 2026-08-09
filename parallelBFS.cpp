@@ -47,7 +47,6 @@ struct GraphData
 
 void printShortestPaths(const vector<int>& shortestPaths)
 {
-    cout << "Shortest paths:" << endl;
 
     for (int distance : shortestPaths)
     {
