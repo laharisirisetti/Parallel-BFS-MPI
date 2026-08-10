@@ -7,8 +7,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 
-RESULTS_DIR = Path(__file__).resolve().parents[1] / "tests" / "results"
-DEFAULT_INPUT = RESULTS_DIR / "local_visited.csv"
+RESULTS_DIR = Path(__file__).resolve().parents[2] / "tests" / "results"
+DEFAULT_INPUT = RESULTS_DIR / "final.csv"
 DEFAULT_OUTPUT = RESULTS_DIR / "benchmark_scaling.png"
 
 

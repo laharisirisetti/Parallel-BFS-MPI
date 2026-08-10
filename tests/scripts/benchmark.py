@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import List, Dict, Tuple
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 TEST_CASES_DIR = REPO_ROOT / "tests" / "test_cases" / "benchmark"
 EXPECTED_DIR = REPO_ROOT / "tests" / "expected" / "benchmark"
 SEQUENTIAL_BIN = REPO_ROOT / "tests" / "sequential"

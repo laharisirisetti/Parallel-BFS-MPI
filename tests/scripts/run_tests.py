@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 TEST_CASES_DIR = REPO_ROOT / "tests" / "test_cases" / "deterministic"
 EXPECTED_DIR = REPO_ROOT / "tests" / "expected" / "deterministic"
 SEQUENTIAL_BIN = REPO_ROOT / "tests" / "sequential"

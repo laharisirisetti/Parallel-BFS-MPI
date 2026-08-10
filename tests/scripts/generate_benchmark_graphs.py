@@ -4,8 +4,8 @@ from pathlib import Path
 from typing import List, Set, Tuple
 
 
-ROOT = Path(__file__).resolve().parent
-OUTPUT_DIR = ROOT / "test_cases" / "benchmark"
+ROOT = Path(__file__).resolve().parents[1]
+OUTPUT_DIR = ROOT / "tests" / "test_cases" / "benchmark"
 SEED = 42
 SOURCE_VERTEX = 0
 
