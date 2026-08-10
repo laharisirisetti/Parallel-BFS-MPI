@@ -84,6 +84,35 @@ int getOwner(
     return static_cast<int>(it - partitionOffsets.begin() - 1);
 }
 
+vector<int> computeDegreePartitionOffsets(
+    const GraphData& graphData
+)
+{
+    const int vertexCount = graphData.vertexCount;
+    const int processCount = worldSize;
+
+    vector<long long> prefix(vertexCount + 1, 0);
+    for (int vertex = 0; vertex < vertexCount; ++vertex)
+    {
+        prefix[vertex + 1] = prefix[vertex] +
+            static_cast<long long>(graphData.graph[vertex].size());
+    }
+
+    long long totalWeight = prefix[vertexCount];
+    vector<int> partitionOffsets(processCount + 1);
+    partitionOffsets[0] = 0;
+
+    for (int process = 1; process < processCount; ++process)
+    {
+        long long target = (totalWeight * process) / processCount;
+        auto it = lower_bound(prefix.begin(), prefix.end(), target);
+        partitionOffsets[process] = static_cast<int>(distance(prefix.begin(), it));
+    }
+
+    partitionOffsets[processCount] = vertexCount;
+    return partitionOffsets;
+}
+
 // ------------------------------------------------------------
 // MPI Communication
 // ------------------------------------------------------------
@@ -333,34 +362,23 @@ LocalGraph buildLocalGraph(
     return localGraph;
 }
 
-// Split vertices among processors using contiguous block partitioning.
+// Split vertices among processors using contiguous degree-weighted partitioning.
 void computeLocalCSRAndSend(
     GraphData& graphData,
     LocalGraph& rootLocalGraph
 )
 {
-    graphData.partitionOffsets.resize(worldSize + 1);
-
-    const int baseVertexCount =
-        graphData.vertexCount / worldSize;
-
-    const int remainingVertices =
-        graphData.vertexCount % worldSize;
-
-    int startVertex = 0;
+    graphData.partitionOffsets =
+        computeDegreePartitionOffsets(graphData);
 
     for (int process = 0;
          process < worldSize;
          ++process)
     {
-        graphData.partitionOffsets[process] = startVertex;
-
-        const int localVertexCount =
-            baseVertexCount +
-            (process < remainingVertices ? 1 : 0);
-
+        const int startVertex =
+            graphData.partitionOffsets[process];
         const int endVertex =
-            startVertex + localVertexCount - 1;
+            graphData.partitionOffsets[process + 1] - 1;
 
         // Build local CSR graph.
         LocalGraph localGraph =
@@ -379,11 +397,7 @@ void computeLocalCSRAndSend(
         {
             sendLocalGraph(localGraph, process);
         }
-
-        startVertex = endVertex + 1;
     }
-
-    graphData.partitionOffsets[worldSize] = graphData.vertexCount;
 }
 
 void readInputAndBuildGraph(GraphData& graphData)
