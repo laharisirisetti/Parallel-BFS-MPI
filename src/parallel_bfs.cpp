@@ -614,6 +614,44 @@ vector<int> runParallelBFS(
     return distance;
 }
 
+void gatherDistances(
+    const vector<int>& localDistance,
+    const GraphData& graphData,
+    const LocalGraph& localGraph,
+    vector<int>& finalDistance,
+    vector<int>& recvCounts,
+    vector<int>& recvDisplacements
+)
+{
+    if (mpiRank == ROOT_PROCESS)
+    {
+        finalDistance.resize(graphData.vertexCount);
+        recvCounts.resize(worldSize);
+        recvDisplacements.resize(worldSize);
+
+        for (int process = 0; process < worldSize; ++process)
+        {
+            recvCounts[process] =
+                graphData.partitionOffsets[process + 1] -
+                graphData.partitionOffsets[process];
+            recvDisplacements[process] =
+                graphData.partitionOffsets[process];
+        }
+    }
+
+    MPI_Gatherv(
+        localDistance.data(),
+        localGraph.localVertexCount,
+        MPI_INT,
+        finalDistance.data(),
+        recvCounts.data(),
+        recvDisplacements.data(),
+        MPI_INT,
+        ROOT_PROCESS,
+        MPI_COMM_WORLD
+    );
+}
+
 // ------------------------------------------------------------
 // MPI Initialization
 // ------------------------------------------------------------
