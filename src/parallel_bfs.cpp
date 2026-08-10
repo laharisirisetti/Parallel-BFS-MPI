@@ -481,7 +481,7 @@ vector<int> runParallelBFS(
 )
 {
     vector<bool> visited(
-        graphData.vertexCount,
+        localGraph.localVertexCount,
         false
     );
 
@@ -509,7 +509,7 @@ vector<int> runParallelBFS(
         const int localIndex =
             graphData.sourceVertex - localGraph.startVertex;
 
-        visited[graphData.sourceVertex] = true;
+        visited[localIndex] = true;
         distance[localIndex] = 0;
     }
 
@@ -566,9 +566,9 @@ vector<int> runParallelBFS(
                     const int childLocalIndex =
                         child - localGraph.startVertex;
 
-                    if (!visited[child])
+                    if (!visited[childLocalIndex])
                     {
-                        visited[child] = true;
+                        visited[childLocalIndex] = true;
                         distance[childLocalIndex] = level + 1;
                         nextFrontier.push_back(child);
                     }
@@ -576,11 +576,7 @@ vector<int> runParallelBFS(
                 // Child belongs to another process.
                 else
                 {
-                    if (!visited[child])
-                    {
-                        visited[child] = true;
-                        sendBuffers[childOwner].push_back(child);
-                    }
+                    sendBuffers[childOwner].push_back(child);
                 }
             }
         }
@@ -594,9 +590,9 @@ vector<int> runParallelBFS(
             const int localIndex =
                 vertex - localGraph.startVertex;
 
-            if (!visited[vertex])
+            if (!visited[localIndex])
             {
-                visited[vertex] = true;
+                visited[localIndex] = true;
                 distance[localIndex] = level + 1;
                 nextFrontier.push_back(vertex);
             }
