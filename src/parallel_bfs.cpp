@@ -38,7 +38,7 @@ struct GraphData
     int vertexCount;
     int sourceVertex;
     vector<vector<int>> graph;
-    vector<int> vertexOwner;
+    vector<int> partitionOffsets;
 };
 
 // ------------------------------------------------------------
@@ -67,6 +67,20 @@ vector<int> computeDisplacements(const vector<int>& counts)
     }
 
     return displacements;
+}
+
+int getOwner(
+    const vector<int>& partitionOffsets,
+    int vertex
+)
+{
+    auto it = upper_bound(
+        partitionOffsets.begin(),
+        partitionOffsets.end(),
+        vertex
+    );
+
+    return static_cast<int>(it - partitionOffsets.begin() - 1);
 }
 
 // ------------------------------------------------------------
@@ -321,7 +335,7 @@ void computeLocalCSRAndSend(
     LocalGraph& rootLocalGraph
 )
 {
-    graphData.vertexOwner.resize(graphData.vertexCount);
+    graphData.partitionOffsets.resize(worldSize + 1);
 
     const int baseVertexCount =
         graphData.vertexCount / worldSize;
@@ -335,20 +349,14 @@ void computeLocalCSRAndSend(
          process < worldSize;
          ++process)
     {
+        graphData.partitionOffsets[process] = startVertex;
+
         const int localVertexCount =
             baseVertexCount +
             (process < remainingVertices ? 1 : 0);
 
         const int endVertex =
             startVertex + localVertexCount - 1;
-
-        // Assign owner of each vertex.
-        for (int vertex = startVertex;
-             vertex <= endVertex;
-             ++vertex)
-        {
-            graphData.vertexOwner[vertex] = process;
-        }
 
         // Build local CSR graph.
         LocalGraph localGraph =
@@ -370,6 +378,8 @@ void computeLocalCSRAndSend(
 
         startVertex = endVertex + 1;
     }
+
+    graphData.partitionOffsets[worldSize] = graphData.vertexCount;
 }
 
 void readInputAndBuildGraph(GraphData& graphData)
@@ -430,14 +440,12 @@ void receiveFullGraphData(
 
     if (mpiRank != ROOT_PROCESS)
     {
-        graphData.vertexOwner.resize(
-            graphData.vertexCount
-        );
+        graphData.partitionOffsets.resize(worldSize + 1);
     }
 
     MPI_Bcast(
-        graphData.vertexOwner.data(),
-        graphData.vertexCount,
+        graphData.partitionOffsets.data(),
+        worldSize + 1,
         MPI_INT,
         ROOT_PROCESS,
         MPI_COMM_WORLD
@@ -470,8 +478,10 @@ vector<int> runParallelBFS(
 
     // Only the process owning the source starts the BFS.
     if (
-        graphData.vertexOwner[graphData.sourceVertex]
-        == mpiRank
+        getOwner(
+            graphData.partitionOffsets,
+            graphData.sourceVertex
+        ) == mpiRank
     )
     {
         currentFrontier.push_back(
@@ -523,7 +533,10 @@ vector<int> runParallelBFS(
                     localGraph.csr[index];
 
                 const int childOwner =
-                    graphData.vertexOwner[child];
+                    getOwner(
+                        graphData.partitionOffsets,
+                        child
+                    );
 
                 // Child belongs to this process.
                 if (childOwner == mpiRank)
