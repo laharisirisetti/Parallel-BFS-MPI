@@ -29,6 +29,7 @@ int worldSize;
 struct LocalGraph
 {
     int startVertex;
+    int localVertexCount;
     vector<int> offsets;
     vector<int> csr;
 };
@@ -282,6 +283,8 @@ void receiveLocalGraph(LocalGraph& localGraph)
         MPI_COMM_WORLD,
         MPI_STATUS_IGNORE
     );
+
+    localGraph.localVertexCount = offsetSize - 1;
 }
 
 // ------------------------------------------------------------
@@ -300,6 +303,7 @@ LocalGraph buildLocalGraph(
     LocalGraph localGraph;
 
     localGraph.startVertex = startVertex;
+    localGraph.localVertexCount = localVertexCount;
     localGraph.offsets.resize(localVertexCount + 1, 0);
 
     // Build CSR offsets.
@@ -463,12 +467,12 @@ vector<int> runParallelBFS(
 )
 {
     vector<bool> visited(
-        graphData.vertexCount,
+        localGraph.localVertexCount,
         false
     );
 
     vector<int> distance(
-        graphData.vertexCount,
+        localGraph.localVertexCount,
         -1
     );
 
@@ -488,7 +492,11 @@ vector<int> runParallelBFS(
             graphData.sourceVertex
         );
 
-        visited[graphData.sourceVertex] = true;
+        const int localIndex =
+            graphData.sourceVertex - localGraph.startVertex;
+
+        visited[localIndex] = true;
+        distance[localIndex] = 0;
     }
 
     int localFrontierSize =
@@ -514,10 +522,10 @@ vector<int> runParallelBFS(
         // Process current frontier.
         for (int vertex : currentFrontier)
         {
-            distance[vertex] = level;
-
             const int localVertexIndex =
                 vertex - localGraph.startVertex;
+
+            distance[localVertexIndex] = level;
 
             const int offsetStart =
                 localGraph.offsets[localVertexIndex];
@@ -541,9 +549,13 @@ vector<int> runParallelBFS(
                 // Child belongs to this process.
                 if (childOwner == mpiRank)
                 {
-                    if (!visited[child])
+                    const int childLocalIndex =
+                        child - localGraph.startVertex;
+
+                    if (!visited[childLocalIndex])
                     {
-                        visited[child] = true;
+                        visited[childLocalIndex] = true;
+                        distance[childLocalIndex] = level + 1;
                         nextFrontier.push_back(child);
                     }
                 }
@@ -561,9 +573,13 @@ vector<int> runParallelBFS(
 
         for (int vertex : receivedVertices)
         {
-            if (!visited[vertex])
+            const int localIndex =
+                vertex - localGraph.startVertex;
+
+            if (!visited[localIndex])
             {
-                visited[vertex] = true;
+                visited[localIndex] = true;
+                distance[localIndex] = level + 1;
                 nextFrontier.push_back(vertex);
             }
         }
@@ -645,17 +661,34 @@ int main(int argc, char* argv[])
             localGraph
         );
 
-    // Combine distances from all processes.
-    vector<int> finalDistance(
-        graphData.vertexCount
-    );
+    vector<int> finalDistance;
+    vector<int> recvCounts;
+    vector<int> recvDisplacements;
 
-    MPI_Reduce(
+    if (mpiRank == ROOT_PROCESS)
+    {
+        finalDistance.resize(graphData.vertexCount);
+        recvCounts.resize(worldSize);
+        recvDisplacements.resize(worldSize);
+
+        for (int process = 0; process < worldSize; ++process)
+        {
+            recvCounts[process] =
+                graphData.partitionOffsets[process + 1] -
+                graphData.partitionOffsets[process];
+            recvDisplacements[process] =
+                graphData.partitionOffsets[process];
+        }
+    }
+
+    MPI_Gatherv(
         localDistance.data(),
-        finalDistance.data(),
-        graphData.vertexCount,
+        localGraph.localVertexCount,
         MPI_INT,
-        MPI_MAX,
+        finalDistance.data(),
+        recvCounts.data(),
+        recvDisplacements.data(),
+        MPI_INT,
         ROOT_PROCESS,
         MPI_COMM_WORLD
     );
