@@ -23,6 +23,8 @@ def load_results(path: Path):
                     "implementation": row["implementation"],
                     "process_count": int(row["process_count"]),
                     "median_time_seconds": float(row["median_time_seconds"]),
+                    "vertex_count": int(row["vertex_count"]),
+                    "edge_count": int(row["edge_count"]),
                 }
             )
     return rows
@@ -61,17 +63,20 @@ def plot_scaling(grouped, cases, output_path: Path):
         median_times = [row["median_time_seconds"] for row in parallel_rows]
         speedups = [data["sequential"]["median_time_seconds"] / t for t in median_times]
 
+        metadata = data["sequential"]
+        label = f"{case.replace('.txt', '')} (V={metadata['vertex_count']}, E={metadata['edge_count']})"
+
         ax_runtime.plot(
             process_counts,
             median_times,
             marker="o",
-            label=case.replace(".txt", ""),
+            label=label,
         )
         ax_speedup.plot(
             process_counts,
             speedups,
             marker="o",
-            label=case.replace(".txt", ""),
+            label=label,
         )
 
     ax_runtime.set_title("MPI BFS Median Runtime vs Process Count")
