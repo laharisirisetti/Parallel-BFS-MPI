@@ -408,17 +408,13 @@ void readInputAndBuildGraph(GraphData& graphData)
         >> edgeCount
         >> graphData.sourceVertex;
 
-    vector<pair<int, int>> edges(edgeCount);
-
-    for (auto& [from, to] : edges)
-    {
-        cin >> from >> to;
-    }
-
+    graphData.graph.clear();
     graphData.graph.resize(graphData.vertexCount);
 
-    for (const auto& [from, to] : edges)
+    for (int i = 0; i < edgeCount; ++i)
     {
+        int from, to;
+        cin >> from >> to;
         graphData.graph[from].push_back(to);
     }
 }
