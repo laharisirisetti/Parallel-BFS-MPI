@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import List
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-TEST_CASES_DIR = REPO_ROOT / "tests" / "test_cases" / "deterministic"
-EXPECTED_DIR = REPO_ROOT / "tests" / "expected" / "deterministic"
-SEQUENTIAL_BIN = REPO_ROOT / "tests" / "sequential"
-PARALLEL_BIN = REPO_ROOT / "tests" / "parallel"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+TEST_CASES_DIR = REPO_ROOT / "tests" / "cases"
+EXPECTED_DIR = REPO_ROOT / "tests" / "expected"
+BUILD_DIR = REPO_ROOT / "build"
+SEQUENTIAL_BIN = BUILD_DIR / "bin" / "sequential_bfs"
+PARALLEL_BIN = BUILD_DIR / "bin" / "parallel_bfs"
 
 PROCESS_COUNTS = [1, 2, 3, 4, 8, 12]
-COMMAND_TIMEOUT_SECONDS = 5
+COMMAND_TIMEOUT_SECONDS = 60
 
 
 def normalize_output(text: str) -> str:
@@ -46,17 +46,13 @@ def run_command(command: List[str], input_text: str) -> str:
 
 def ensure_binaries() -> None:
     subprocess.run(
-        ["g++", "-std=c++17", "src/sequential_bfs.cpp", "-O2", "-o", str(SEQUENTIAL_BIN)],
+        ["cmake", "-S", ".", "-B", str(BUILD_DIR), "-DCMAKE_BUILD_TYPE=Release"],
         cwd=REPO_ROOT,
         check=True,
         timeout=COMMAND_TIMEOUT_SECONDS,
     )
-
-    if shutil.which("mpic++") is None:
-        raise RuntimeError("mpic++ is not available. Install OpenMPI or provide the MPI compiler wrapper.")
-
     subprocess.run(
-        ["mpic++", "-std=c++17", "src/parallel_bfs.cpp", "-O2", "-o", str(PARALLEL_BIN)],
+        ["cmake", "--build", str(BUILD_DIR), "--parallel"],
         cwd=REPO_ROOT,
         check=True,
         timeout=COMMAND_TIMEOUT_SECONDS,
@@ -96,7 +92,7 @@ def run_single_test(case_path: Path) -> bool:
                 str(PARALLEL_BIN),
             ]
 
-            if os.geteuid() == 0:
+            if getattr(os, "geteuid", lambda: -1)() == 0:
                 mpi_command.insert(1, "--allow-run-as-root")
 
             parallel_output = run_command(

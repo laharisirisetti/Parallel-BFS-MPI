@@ -3,5 +3,5 @@ a.out
 *.out
 build/
 .vscode/
-tests/sequential
-tests/parallel
+__pycache__/
+benchmarks/results/benchmark_results_*.csv
