@@ -362,7 +362,7 @@ LocalGraph buildLocalGraph(
     return localGraph;
 }
 
-// Split vertices among processors using contiguous degree-weighted partitioning.
+// Split vertices using degree-balanced contiguous vertex partitioning.
 void computeLocalCSRAndSend(
     GraphData& graphData,
     LocalGraph& rootLocalGraph
