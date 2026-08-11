@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import csv
 import os
-import shutil
 import statistics
 import subprocess
 import sys
@@ -10,12 +9,14 @@ from pathlib import Path
 from typing import List, Dict, Tuple
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-TEST_CASES_DIR = REPO_ROOT / "tests" / "test_cases" / "benchmark"
-EXPECTED_DIR = REPO_ROOT / "tests" / "expected" / "benchmark"
-SEQUENTIAL_BIN = REPO_ROOT / "tests" / "sequential"
-PARALLEL_BIN = REPO_ROOT / "tests" / "parallel"
-RESULTS_DIR = REPO_ROOT / "tests" / "results"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+BENCHMARKS_DIR = REPO_ROOT / "benchmarks"
+TEST_CASES_DIR = BENCHMARKS_DIR / "graphs"
+EXPECTED_DIR = BENCHMARKS_DIR / "expected"
+RESULTS_DIR = BENCHMARKS_DIR / "results"
+BUILD_DIR = REPO_ROOT / "build"
+SEQUENTIAL_BIN = BUILD_DIR / "bin" / "sequential_bfs"
+PARALLEL_BIN = BUILD_DIR / "bin" / "parallel_bfs"
 PROCESS_COUNTS = [1, 2, 4, 8, 12]
 COMMAND_TIMEOUT_SECONDS = 120
 WARMUP_RUNS = 1
@@ -51,17 +52,13 @@ def run_command(command: List[str], input_text: str) -> str:
 
 def ensure_binaries() -> None:
     subprocess.run(
-        ["g++", "-std=c++17", "src/sequential_bfs.cpp", "-O2", "-o", str(SEQUENTIAL_BIN)],
+        ["cmake", "-S", ".", "-B", str(BUILD_DIR), "-DCMAKE_BUILD_TYPE=Release"],
         cwd=REPO_ROOT,
         check=True,
         timeout=COMMAND_TIMEOUT_SECONDS,
     )
-
-    if shutil.which("mpic++") is None:
-        raise RuntimeError("mpic++ is not available. Install OpenMPI or provide the MPI compiler wrapper.")
-
     subprocess.run(
-        ["mpic++", "-std=c++17", "src/parallel_bfs.cpp", "-O2", "-o", str(PARALLEL_BIN)],
+        ["cmake", "--build", str(BUILD_DIR), "--parallel"],
         cwd=REPO_ROOT,
         check=True,
         timeout=COMMAND_TIMEOUT_SECONDS,
@@ -208,7 +205,7 @@ def main() -> int:
                 str(PARALLEL_BIN),
             ]
 
-            if os.geteuid() == 0:
+            if getattr(os, "geteuid", lambda: -1)() == 0:
                 mpi_command.insert(1, "--allow-run-as-root")
 
             try:

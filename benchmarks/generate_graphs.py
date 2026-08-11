@@ -5,7 +5,7 @@ from typing import List, Set, Tuple
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT_DIR = ROOT / "tests" / "test_cases" / "benchmark"
+OUTPUT_DIR = ROOT / "benchmarks" / "graphs"
 SEED = 42
 SOURCE_VERTEX = 0
 
