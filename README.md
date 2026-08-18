@@ -20,7 +20,6 @@ A distributed-memory **Breadth-First Search** that computes single-source shorte
 - [Testing](#testing)
 - [Benchmarks](#benchmarks)
 - [How It Works](#how-it-works)
-- [Roadmap](#roadmap)
 - [License](#license)
 
 ## Overview
@@ -73,12 +72,11 @@ Parallel-BFS-MPI/
 ├── benchmarks/
 │   ├── graphs/                # Generated benchmark inputs
 │   ├── expected/              # Golden benchmark outputs
-│   ├── results/               # Canonical CSV + optimization history
-│   ├── plots/                 # Generated benchmark visualizations
+│   ├── results/               # Benchmark CSV output
+│   ├── plots/                 # Generated SVG visualizations
 │   ├── benchmark.py           # Benchmark runner
 │   ├── generate_graphs.py     # Reproducible graph generator
-│   └── plot_results.py        # CSV plotting utility
-├── CMakeLists.txt             # Build system
+│   └── plot_results.py        # CSV -> SVG plotting utility
 ├── .github/workflows/ci.yml   # Build + test on every push
 └── LICENSE
 ```
@@ -89,20 +87,20 @@ Parallel-BFS-MPI/
 
 - A C++17 compiler (`g++` or `clang++`)
 - An MPI implementation ([OpenMPI](https://www.open-mpi.org/) or [MPICH](https://www.mpich.org/))
-- [CMake](https://cmake.org/) ≥ 3.16
 - Python ≥ 3.8 (only for the test/benchmark scripts)
 
 > **Windows users:** the MPI toolchain targets Linux/macOS. Use [WSL2](https://learn.microsoft.com/windows/wsl/install) (Ubuntu) and install the dependencies with:
 >
 > ```bash
-> sudo apt-get update && sudo apt-get install -y build-essential cmake openmpi-bin libopenmpi-dev
+> sudo apt-get update && sudo apt-get install -y build-essential openmpi-bin libopenmpi-dev
 > ```
 
 ### Build
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel
+mkdir -p build/bin
+g++    -std=c++17 -O2 src/sequential_bfs.cpp -o build/bin/sequential_bfs
+mpic++ -std=c++17 -O2 src/parallel_bfs.cpp   -o build/bin/parallel_bfs
 ```
 
 The executables are written to `build/bin/`:
@@ -175,44 +173,44 @@ python3 tests/run_tests.py
 
 - **Graph families:** `chain`, `star`, `random_sparse`, `random_medium`, `skewed_powerlaw`, `large_random`.
 - **Timing:** median of 5 measured runs after 1 warm-up run.
-- **Metric:** end-to-end wall-clock time, including MPI startup, graph distribution, and result gathering.
+- **Metric:** the BFS traversal region only, measured inside the program with `MPI_Wtime` (max across ranks) and reported on stderr. This excludes MPI startup, graph distribution, and result gathering, so the numbers reflect the algorithm rather than process-launch overhead.
 
 Reproduce:
 
 ```bash
-python3 -m pip install -r benchmarks/requirements.txt
 python3 benchmarks/generate_graphs.py   # regenerate benchmark inputs
-python3 benchmarks/benchmark.py         # time sequential vs parallel -> CSV
-python3 benchmarks/plot_results.py      # render the scaling plot
+python3 benchmarks/benchmark.py         # time sequential vs parallel -> results/final.csv
+python3 benchmarks/plot_results.py      # render the scaling plots (SVG)
 ```
 
-![BFS runtime and speedup vs MPI process count](benchmarks/plots/benchmark_scaling.png)
+![BFS speedup vs process count](benchmarks/plots/speedup.svg)
 
-### Results (median seconds)
+![BFS runtime vs process count](benchmarks/plots/runtime.svg)
 
-| Graph (V, E)                | Sequential |  np=1 |  np=2 |  np=4 |  np=8 | np=12 |
-| --------------------------- | ---------: | ----: | ----: | ----: | ----: | ----: |
-| star (12k, 24k)             |     0.0096 | 0.331 | 0.339 | 0.388 | 0.492 | 0.581 |
-| chain (12k, 24k)            |     0.0118 | 0.342 | 0.355 | 0.465 | 0.941 | 1.630 |
-| random_sparse (12k, 60k)    |     0.0258 | 0.355 | 0.372 | 0.431 | 0.565 | 0.759 |
-| skewed_powerlaw (10k, 120k) |     0.0453 | 0.393 | 0.409 | 0.490 | 0.706 | 0.884 |
-| random_medium (8k, 160k)    |     0.0660 | 0.411 | 0.427 | 0.557 | 0.824 | 0.990 |
-| large_random (50k, 500k)    |     0.2269 | 0.661 | 0.682 | 1.017 | 1.594 | 1.896 |
+### Results (median milliseconds, BFS region only)
 
-_All parallel runs were verified correct against the sequential oracle._
+| Graph (V, E)                | Sequential |  np=1 |  np=2 |   np=4 |   np=8 |  np=12 |
+| --------------------------- | ---------: | ----: | ----: | -----: | -----: | -----: |
+| star (12k, 24k)             |       0.09 |  0.11 |  0.28 |   0.43 |   0.35 |   0.45 |
+| chain (12k, 24k)            |       0.09 |  1.11 |  5.23 |  12.58 |  39.83 | 122.33 |
+| random_sparse (12k, 60k)    |       0.55 |  0.39 |  0.41 |   0.44 |   0.85 |   1.85 |
+| skewed_powerlaw (10k, 120k) |       0.77 |  0.55 |  0.66 |   0.72 |   1.07 |   1.48 |
+| random_medium (8k, 160k)    |       0.82 |  0.75 |  0.84 |   0.67 |   1.16 |   1.61 |
+| large_random (50k, 500k)    |       5.77 |  3.93 |  3.66 |   2.47 |   2.93 |   2.75 |
+
+_All parallel runs were verified correct against the sequential oracle. `large_random` reaches about 2.3x speedup at np=4._
 
 ### What the numbers show (and why)
 
-This is a deliberately honest read of the data:
+An honest read of the algorithm-only data:
 
-1. **Correctness holds everywhere** — across all six graph families and every process count from 1 to 12.
-2. **At these sizes the sequential baseline wins.** Parallel speedup stays below `1.0` and _degrades_ as ranks increase.
-3. **There is a ~0.33 s floor** on every parallel run, even at `np=1`. That floor is MPI initialization plus the per-level collective operations, and it dwarfs the microsecond-to-millisecond cost of the actual traversal.
-4. **Adding ranks adds communication, not throughput** here. Level-synchronous BFS performs `O(depth)` global synchronizations; each level's compute is tiny, so latency-bound `MPI_Allreduce` / `MPI_Alltoallv` rounds dominate — and on a single oversubscribed machine, extra ranks contend for the same physical cores.
+1. **Correctness holds everywhere.** All six graph families, every process count from 1 to 12.
+2. **`large_random` actually scales.** The largest graph (500k edges, low diameter) reaches about 2.3x at np=4. With enough edges per level, real traversal work finally outweighs the per-level communication.
+3. **Most graphs are too small to benefit.** They finish in well under a millisecond sequentially, so there is almost nothing to parallelize; adding ranks past 1 to 4 only piles on communication and slows things down.
+4. **`chain` is the pathological case.** A 12,000-vertex line has about 12,000 BFS levels, each paying three global collectives (`MPI_Alltoall` + `MPI_Alltoallv` + `MPI_Allreduce`). Cost grows with both depth and rank count, so it degrades monotonically: 0.09 ms sequential versus 122 ms at np=12.
+5. **CSR is a free win even at np=1.** The single-process parallel run often beats the sequential baseline (large_random is about 1.5x) because the compact CSR layout iterates neighbours more cache-efficiently than the adjacency-list baseline.
 
-**Where this design would pay off:** far larger graphs (tens of millions of edges, so per-level compute exceeds communication), genuine distributed hardware instead of oversubscribed cores, and overlapping communication with computation. This is the classic strong-scaling wall for small/medium graphs on commodity hardware — a limitation of the workload and environment, not of the algorithm's correctness.
-
-The CSVs under [`benchmarks/results/`](benchmarks/results/) trace the optimization journey — `baseline` → degree-balanced contiguous vertex partitioning → direct CSR construction → send-side de-duplication → local-only visited/distance state → `final` — each step trimming measurable overhead.
+**Where this design pays off:** large, low-diameter graphs (so per-level compute exceeds communication), genuine multi-node hardware instead of oversubscribed cores, and overlapping communication with computation. Level-synchronous BFS on small or high-diameter graphs is latency-bound by design, a property of the workload rather than a correctness flaw.
 
 ## How It Works
 
@@ -225,15 +223,6 @@ The CSVs under [`benchmarks/results/`](benchmarks/results/) trace the optimizati
 7. **Gather** — local distance arrays are collected to the root with `MPI_Gatherv` and printed.
 
 See [`docs/design.md`](docs/design.md) for the full reasoning behind these decisions.
-
-## Roadmap
-
-- [ ] Replace `#include <bits/stdc++.h>` with standard headers; split into translation units.
-- [ ] Add `clang-format` / `clang-tidy` and wire them into CI.
-- [ ] Add a `Dockerfile` for a one-command reproducible MPI environment.
-- [ ] Overlap communication with computation using non-blocking collectives.
-- [ ] Explore direction-optimizing (push/pull) BFS for high-diameter and hub-heavy graphs.
-- [ ] Scale-test on a real multi-node cluster to measure true strong/weak scaling.
 
 ## License
 

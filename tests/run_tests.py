@@ -45,14 +45,16 @@ def run_command(command: List[str], input_text: str) -> str:
 
 
 def ensure_binaries() -> None:
+    bin_dir = BUILD_DIR / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        ["cmake", "-S", ".", "-B", str(BUILD_DIR), "-DCMAKE_BUILD_TYPE=Release"],
+        ["g++", "-std=c++17", "-O2", str(REPO_ROOT / "src" / "sequential_bfs.cpp"), "-o", str(SEQUENTIAL_BIN)],
         cwd=REPO_ROOT,
         check=True,
         timeout=COMMAND_TIMEOUT_SECONDS,
     )
     subprocess.run(
-        ["cmake", "--build", str(BUILD_DIR), "--parallel"],
+        ["mpic++", "-std=c++17", "-O2", str(REPO_ROOT / "src" / "parallel_bfs.cpp"), "-o", str(PARALLEL_BIN)],
         cwd=REPO_ROOT,
         check=True,
         timeout=COMMAND_TIMEOUT_SECONDS,

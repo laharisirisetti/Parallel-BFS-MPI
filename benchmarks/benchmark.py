@@ -27,7 +27,7 @@ def normalize_output(text: str) -> str:
     return " ".join(text.strip().split())
 
 
-def run_command(command: List[str], input_text: str) -> str:
+def run_command(command: List[str], input_text: str) -> Tuple[str, str]:
     try:
         result = subprocess.run(
             command,
@@ -47,18 +47,20 @@ def run_command(command: List[str], input_text: str) -> str:
             f"Command failed ({result.returncode}): {' '.join(command)}\n"
             f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
         )
-    return result.stdout
+    return result.stdout, result.stderr
 
 
 def ensure_binaries() -> None:
+    bin_dir = BUILD_DIR / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        ["cmake", "-S", ".", "-B", str(BUILD_DIR), "-DCMAKE_BUILD_TYPE=Release"],
+        ["g++", "-std=c++17", "-O2", str(REPO_ROOT / "src" / "sequential_bfs.cpp"), "-o", str(SEQUENTIAL_BIN)],
         cwd=REPO_ROOT,
         check=True,
         timeout=COMMAND_TIMEOUT_SECONDS,
     )
     subprocess.run(
-        ["cmake", "--build", str(BUILD_DIR), "--parallel"],
+        ["mpic++", "-std=c++17", "-O2", str(REPO_ROOT / "src" / "parallel_bfs.cpp"), "-o", str(PARALLEL_BIN)],
         cwd=REPO_ROOT,
         check=True,
         timeout=COMMAND_TIMEOUT_SECONDS,
@@ -72,10 +74,17 @@ def load_expected(case_name: str) -> str:
     return expected_path.read_text(encoding="utf-8")
 
 
+def parse_time(stderr_text: str) -> float:
+    # binaries print "TIME <seconds>" for the algorithm region only
+    for line in stderr_text.splitlines():
+        if line.startswith("TIME"):
+            return float(line.split()[1])
+    raise RuntimeError("no TIME line found in stderr")
+
+
 def run_and_measure(command: List[str], input_text: str) -> Tuple[str, float]:
-    start = time.perf_counter()
-    output = run_command(command, input_text)
-    elapsed = time.perf_counter() - start
+    output, stderr_text = run_command(command, input_text)
+    elapsed = parse_time(stderr_text)
     return output, elapsed
 
 
@@ -120,8 +129,7 @@ def write_results_csv(rows: List[Dict[str, object]]) -> None:
     ]
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    results_path = RESULTS_DIR / f"benchmark_results_{timestamp}.csv"
+    results_path = RESULTS_DIR / "final.csv"
 
     with results_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)

@@ -66,7 +66,10 @@ int main()
 
     readInputAndBuildGraph(V, source, graph);
 
+    auto _bench_start = chrono::steady_clock::now();
     vector<int> dist = runBFS(graph, source);
+    auto _bench_end = chrono::steady_clock::now();
+    fprintf(stderr, "TIME %.6f\n", chrono::duration<double>(_bench_end - _bench_start).count());
 
     printShortestPaths(dist);
 

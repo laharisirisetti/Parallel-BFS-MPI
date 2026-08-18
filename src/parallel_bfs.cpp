@@ -703,11 +703,25 @@ int main(int argc, char* argv[])
     );
 
     // Run distributed BFS.
+    // Time only the BFS region (exclude MPI startup, distribution, gather, I/O),
+    // taking the slowest rank so the number reflects true wall time.
+    MPI_Barrier(MPI_COMM_WORLD);
+    double bfsStart = MPI_Wtime();
+
     vector<int> localDistance =
         runParallelBFS(
             graphData,
             localGraph
         );
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    double bfsElapsed = MPI_Wtime() - bfsStart;
+    double bfsMaxElapsed;
+    MPI_Reduce(&bfsElapsed, &bfsMaxElapsed, 1, MPI_DOUBLE, MPI_MAX, ROOT_PROCESS, MPI_COMM_WORLD);
+    if (mpiRank == ROOT_PROCESS)
+    {
+        fprintf(stderr, "TIME %.6f\n", bfsMaxElapsed);
+    }
 
     vector<int> finalDistance;
     vector<int> recvCounts;
