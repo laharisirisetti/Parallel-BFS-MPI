@@ -5,3 +5,4 @@ build/
 .vscode/
 __pycache__/
 benchmarks/results/benchmark_results_*.csv
+benchmarks/results/bench.log
