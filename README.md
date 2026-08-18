@@ -7,7 +7,9 @@
 
 A distributed-memory **Breadth-First Search** that computes single-source shortest-path (hop) distances across MPI processes, backed by a sequential reference implementation, a deterministic correctness suite, and a reproducible benchmark study.
 
-> Built to explore how graph traversal scales under distributed-memory parallelism — and to characterize, honestly, the regime where it does and does not pay off.
+On the largest benchmark graph (50k vertices, 500k edges) the distributed traversal cuts BFS time by about **2.3x** (5.77 ms to 2.47 ms) at 4 ranks, verified correct against a sequential oracle across 1 to 12 ranks. The benchmark study also characterizes, honestly, where distributed BFS does *not* pay off: small or high-diameter graphs stay latency-bound.
+
+> Built to explore how graph traversal scales under distributed-memory parallelism, and to characterize the regime where it does and does not pay off.
 
 ## Table of Contents
 
@@ -26,15 +28,15 @@ A distributed-memory **Breadth-First Search** that computes single-source shorte
 
 Given a directed graph and a source vertex, BFS computes the minimum number of edges (hops) from the source to every other vertex; unreachable vertices are reported as `-1`. This repository provides two implementations:
 
-- **Sequential BFS** — a classic queue-based traversal used as a correctness oracle and performance baseline.
-- **Parallel BFS (MPI)** — a level-synchronous distributed traversal. Vertices are partitioned across ranks; each rank owns a contiguous vertex range stored in **CSR** form, exchanges newly discovered non-local vertices through collective communication each level, and detects global termination cooperatively.
+- **Sequential BFS**: a classic queue-based traversal used as a correctness oracle and performance baseline.
+- **Parallel BFS (MPI)**: a level-synchronous distributed traversal. Vertices are partitioned across ranks; each rank owns a contiguous vertex range stored in **CSR** form, exchanges newly discovered non-local vertices through collective communication each level, and detects global termination cooperatively.
 
 ## Features
 
 - **Level-synchronous distributed BFS** over `MPI_COMM_WORLD`.
-- **Degree-balanced contiguous vertex partitioning** — balances the number of _edges_ per rank (not just vertices) so that dense hubs don't overload a single process.
+- **Degree-balanced contiguous vertex partitioning**: balances the number of _edges_ per rank (not just vertices) so that dense hubs don't overload a single process.
 - **CSR (Compressed Sparse Row)** local graph representation for cache-friendly neighbor iteration.
-- **Sparse frontier exchange** via `MPI_Alltoall` (counts) + `MPI_Alltoallv` (data) — every rank sends only the vertices actually owned by each peer.
+- **Sparse frontier exchange** via `MPI_Alltoall` (counts) + `MPI_Alltoallv` (data): every rank sends only the vertices actually owned by each peer.
 - **Deadlock-free global termination** using `MPI_Allreduce` over frontier sizes, avoiding the classic "one rank finishes early and others hang" failure mode.
 - **Deterministic correctness suite** (10 cases) validated against the sequential oracle across `1, 2, 3, 4, 8, 12` ranks.
 - **Reproducible benchmark harness** with graph generators, timing, and plotting.
@@ -120,9 +122,9 @@ u2 v2
 uE vE
 ```
 
-- `V` — number of vertices (labeled `0 .. V-1`)
-- `E` — number of directed edges
-- `S` — source vertex
+- `V`: number of vertices (labeled `0 .. V-1`)
+- `E`: number of directed edges
+- `S`: source vertex
 - Each subsequent line is a directed edge `u → v`
 
 ### Output
@@ -187,6 +189,8 @@ python3 benchmarks/plot_results.py      # render the scaling plots (SVG)
 
 ![BFS runtime vs process count](benchmarks/plots/runtime.svg)
 
+![BFS efficiency vs process count](benchmarks/plots/efficiency.svg)
+
 ### Results (median milliseconds, BFS region only)
 
 | Graph (V, E)                | Sequential |  np=1 |  np=2 |   np=4 |   np=8 |  np=12 |
@@ -214,13 +218,13 @@ An honest read of the algorithm-only data:
 
 ## How It Works
 
-1. **Read** — the root process reads `V E S` and the edge list from stdin.
-2. **Partition** — vertices are split using **degree-balanced contiguous vertex partitioning**: a cumulative out-degree prefix sum selects contiguous ranges so each rank owns a similar number of edges.
-3. **Distribute** — each rank receives its local subgraph as CSR (`offsets` + `csr`) via point-to-point sends; shared metadata (`vertexCount`, `sourceVertex`, `partitionOffsets`) is broadcast.
-4. **Traverse** — the rank owning the source seeds the frontier. Each level, every rank expands its local frontier: locally owned neighbors go straight into the next frontier; remote neighbors are bucketed by owner.
-5. **Exchange** — buckets are swapped in one shot with `MPI_Alltoall` (counts) + `MPI_Alltoallv` (payload).
-6. **Terminate** — an `MPI_Allreduce` sum of frontier sizes yields the global frontier size; the loop ends when it reaches zero, so no rank can hang waiting on a peer.
-7. **Gather** — local distance arrays are collected to the root with `MPI_Gatherv` and printed.
+1. **Read**: the root process reads `V E S` and the edge list from stdin.
+2. **Partition**: vertices are split using **degree-balanced contiguous vertex partitioning**: a cumulative out-degree prefix sum selects contiguous ranges so each rank owns a similar number of edges.
+3. **Distribute**: each rank receives its local subgraph as CSR (`offsets` + `csr`) via point-to-point sends; shared metadata (`vertexCount`, `sourceVertex`, `partitionOffsets`) is broadcast.
+4. **Traverse**: the rank owning the source seeds the frontier. Each level, every rank expands its local frontier: locally owned neighbors go straight into the next frontier; remote neighbors are bucketed by owner.
+5. **Exchange**: buckets are swapped in one shot with `MPI_Alltoall` (counts) + `MPI_Alltoallv` (payload).
+6. **Terminate**: an `MPI_Allreduce` sum of frontier sizes yields the global frontier size; the loop ends when it reaches zero, so no rank can hang waiting on a peer.
+7. **Gather**: local distance arrays are collected to the root with `MPI_Gatherv` and printed.
 
 See [`docs/design.md`](docs/design.md) for the full reasoning behind these decisions.
 

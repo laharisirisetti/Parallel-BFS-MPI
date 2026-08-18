@@ -163,6 +163,11 @@ def main():
               [(label(n), speedups[n]) for n in names], xvals,
               "speedup (T_seq / T_par)", ideal=lambda x: x)
 
+    efficiency = {n: [s / np_ for s, np_ in zip(speedups[n], xvals)] for n in names}
+    svg_chart(args.output_dir / "efficiency.svg", "BFS efficiency vs processes",
+              [(label(n), efficiency[n]) for n in names], xvals,
+              "efficiency (speedup / np)", ideal=lambda x: 1.0)
+
 
 if __name__ == "__main__":
     main()
